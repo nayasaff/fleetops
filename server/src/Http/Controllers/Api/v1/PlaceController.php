@@ -142,7 +142,8 @@ class PlaceController extends Controller
         $place->fill($input);
 
         // attempt to find and set latitude and longitude
-        if ($isMissingLocation || $request->missing(['latitude', 'longitude', 'location']) || empty($place->country)) {
+        $apiKey = env('GOOGLE_MAPS_API_KEY');
+        if ( !empty($apiKey) && ($isMissingLocation || $request->missing(['latitude', 'longitude', 'location']) || empty($place->country))) {
             $geocoded = Geocoder::geocode($place->toAddressString(['name']))
                 ->get()
                 ->first();
