@@ -62,7 +62,7 @@ export class EventBuffer {
             // get movingObject marker
             const marker = this.model._layer || this.model._marker;
             if (marker) {
-                console.log(data.location.coordinates);
+                console.log("Coordinates ", data.location.coordinates);
                 if (typeof marker.setRotationAngle === 'function' && data.heading) {
                     marker.setRotationAngle(data.heading);
                 }
@@ -162,6 +162,7 @@ export default class MovementTrackerService extends Service {
                             coordinates: output.location.coordinates.reverse()
                         }
                     }
+                    console.log('Output ', output);
                     eventBuffer.add(output);
                     debug(`Incoming socket event added to buffer: ${event}`);
                 }
