@@ -68,9 +68,9 @@ export class EventBuffer {
                 }
 
                 if (typeof marker.slideTo === 'function') {
-                    marker.slideTo(data.location.coordinates);
+                    marker.slideTo(data.location.coordinates.reverse());
                 } else {
-                    marker.setLatLng(data.location.coordinates);
+                    marker.setLatLng(data.location.coordinates.reverse());
                 }
 
                 yield timeout(1000);
@@ -155,13 +155,6 @@ export default class MovementTrackerService extends Service {
                 const { event } = output;
 
                 if (event === `${type}.location_changed` || event === `${type}.simulated_location_changed`) {
-                    output = {
-                        ...output,
-                        location : {
-                            ...output.location,
-                            coordinates: output.location.coordinates.reverse()
-                        }
-                    }
                     console.log('Output ', output);
                     eventBuffer.add(output);
                     debug(`Incoming socket event added to buffer: ${event}`);
