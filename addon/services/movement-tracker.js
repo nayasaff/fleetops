@@ -68,9 +68,9 @@ export class EventBuffer {
                 }
 
                 if (typeof marker.slideTo === 'function') {
-                    marker.slideTo(data.location.coordinates.reverse());
+                    marker.slideTo(data.location.coordinates);
                 } else {
-                    marker.setLatLng(data.location.coordinates.reverse());
+                    marker.setLatLng(data.location.coordinates);
                 }
 
                 yield timeout(1000);
@@ -155,7 +155,18 @@ export default class MovementTrackerService extends Service {
                 const { event } = output;
 
                 if (event === `${type}.location_changed` || event === `${type}.simulated_location_changed`) {
-                    console.log('Output ', output);
+                    //New change : coordinates from navigator app sent to web socket are reversed
+                    //This is to reverse the coordinates back to normal and display driver correctly on map
+                    output = {
+                        ...output, 
+                        data : {
+                            ...output.data,
+                            location: {
+                                ...output.data.location,
+                                coordinates: output.data.location.coordinates.reverse()
+                            }
+                        }
+                    }
                     eventBuffer.add(output);
                     debug(`Incoming socket event added to buffer: ${event}`);
                 }

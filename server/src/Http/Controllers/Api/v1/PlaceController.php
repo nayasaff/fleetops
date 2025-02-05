@@ -142,6 +142,9 @@ class PlaceController extends Controller
         $place->fill($input);
 
         // attempt to find and set latitude and longitude
+        //New change : when creating place using external api, google api key is used to get the accurate location from name or address attribute
+        //When country isn't set, default location is set to 0,0
+        //Adding new conditon if google maps api set and one of the location attributes is missing to set the location with default coordinates
         $apiKey = env('GOOGLE_MAPS_API_KEY');
         if ( !empty($apiKey) && ($isMissingLocation || $request->missing(['latitude', 'longitude', 'location']) || empty($place->country))) {
             $geocoded = Geocoder::geocode($place->toAddressString(['name']))
