@@ -154,13 +154,14 @@ export default class MovementTrackerService extends Service {
                 const { event } = output;
 
                 if (event === `${type}.location_changed` || event === `${type}.simulated_location_changed`) {
-                    output = {
-                        ...output,
-                        location : {
-                            ...output.location,
-                            coordinates: output.location.coordinates.reverse()
-                        }
-                    }
+                    // output = {
+                    //     ...output,
+                    //     location : {
+                    //         ...output.location,
+                    //         coordinates: output.location.coordinates.reverse()
+                    //     }
+                    // }
+                    console.log(output)
                     eventBuffer.add(output);
                     debug(`Incoming socket event added to buffer: ${event}`);
                 }
