@@ -3,6 +3,7 @@
 namespace Fleetbase\FleetOps\Http\Controllers\Api\v1;
 
 use Fleetbase\FleetOps\Events\DriverLocationChanged;
+use Fleetbase\FleetOps\Events\VehicleLocationChanged;
 use Fleetbase\FleetOps\Http\Requests\CreateDriverRequest;
 use Fleetbase\FleetOps\Http\Requests\DriverSimulationRequest;
 use Fleetbase\FleetOps\Http\Requests\UpdateDriverRequest;
@@ -19,6 +20,7 @@ use Fleetbase\Http\Resources\Organization;
 use Fleetbase\LaravelMysqlSpatial\Types\Point;
 use Fleetbase\Models\Company;
 use Fleetbase\Models\CompanyUser;
+use Fleetbase\Models\File;
 use Fleetbase\Models\User;
 use Fleetbase\Models\UserDevice;
 use Fleetbase\Models\VerificationCode;
@@ -119,6 +121,26 @@ class DriverController extends Controller
         // create the driver
         $driver = Driver::create($input);
 
+        // Handle photo as either file id/ or base64 data string
+        $photo = $request->input('photo');
+        if ($photo) {
+            $file = null;
+            // Handle photo being a file id
+            if (Utils::isPublicId($photo)) {
+                $file = File::where('public_id', $photo)->first();
+            }
+
+            // Handle the photo being base64 data string
+            if (Utils::isBase64String($photo)) {
+                $path = implode('/', ['uploads', session('company'), 'drivers']);
+                $file = File::createFromBase64($photo, null, $path);
+            }
+
+            if ($file) {
+                $user->update(['photo_uuid' => $file->uuid]);
+            }
+        }
+
         // load user
         $driver = $driver->load(['user', 'vehicle', 'vendor', 'currentJob']);
 
@@ -184,11 +206,6 @@ class DriverController extends Controller
             ]);
         }
 
-        // set default online
-        if (!isset($input['online'])) {
-            $input['online'] = 0;
-        }
-
         // latitude / longitude
         if ($request->has(['latitude', 'longitude'])) {
             $input['location'] = Utils::getPointFromCoordinates($request->only(['latitude', 'longitude']));
@@ -197,6 +214,26 @@ class DriverController extends Controller
         // create the driver
         $driver->update($input);
         $driver->flushAttributesCache();
+
+        // Handle photo as either file id/ or base64 data string
+        $photo = $request->input('photo');
+        if ($photo) {
+            $file = null;
+            // Handle photo being a file id
+            if (Utils::isPublicId($photo)) {
+                $file = File::where('public_id', $photo)->first();
+            }
+
+            // Handle the photo being base64 data string
+            if (Utils::isBase64String($photo)) {
+                $path = implode('/', ['uploads', session('company'), 'drivers']);
+                $file = File::createFromBase64($photo, null, $path);
+            }
+
+            if ($file) {
+                $driver->user->update(['photo_uuid' => $file->uuid]);
+            }
+        }
 
         // load user
         $driver = $driver->load(['user', 'vehicle', 'vendor', 'currentJob']);
@@ -323,6 +360,7 @@ class DriverController extends Controller
                 'speed'    => $speed,
             ]);
             $driver->vehicle->createPositionWithOrderContext();
+            broadcast(new VehicleLocationChanged($driver->vehicle, ['driver' => $driver->public_id]));
         }
 
         if ($isGeocodable) {
@@ -340,6 +378,41 @@ class DriverController extends Controller
         broadcast(new DriverLocationChanged($driver));
         $driver->createPositionWithOrderContext();
 
+        return new DriverResource($driver);
+    }
+
+    /**
+     * Update a driver's "online" status based on the incoming request.
+     *
+     * If the request includes an "online" parameter, its value is cast to a boolean and applied.
+     * If not, the existing "online" status is toggled (true -> false, false -> true).
+     * A JSON 404 response is returned if the specified driver does not exist.
+     *
+     * @param string  $id      the unique identifier of the driver resource
+     * @param Request $request the incoming HTTP request
+     *
+     * @return \Illuminate\Http\JsonResponse|\App\Http\Resources\DriverResource
+     */
+    public function toggleOnline(string $id, Request $request)
+    {
+        try {
+            $driver = Driver::findRecordOrFail($id);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $exception) {
+            return response()->json([
+                'error' => 'Driver resource not found.',
+            ], 404);
+        }
+
+        // Retrieve the "online" parameter from the request if provided
+        $onlineParam = $request->input('online');
+
+        // Determine the final boolean value for "online"
+        $onlineValue = is_null($onlineParam) ? !$driver->online : Utils::castBoolean($onlineParam);
+
+        // Perform a single update call
+        $driver->update(['online' => $onlineValue]);
+
+        // Return the updated resource
         return new DriverResource($driver);
     }
 
@@ -405,7 +478,7 @@ class DriverController extends Controller
         $user = User::where(
             function ($query) use ($identity) {
                 $query->where('phone', static::phone($identity));
-                $query->owWhere('email', $identity);
+                $query->orWhere('email', $identity);
             }
         )->whereHas('driver')->first();
 
@@ -583,8 +656,8 @@ class DriverController extends Controller
             );
         }
 
-        $companies = Company::whereHas('users', function ($q) use ($driver) {
-            $q->where('users.uuid', $driver->user_uuid);
+        $companies = Company::whereHas('drivers', function ($driverQuery) use ($driver) {
+            $driverQuery->where('user_uuid', $driver->user_uuid);
         })->get();
 
         return Organization::collection($companies);
@@ -618,21 +691,35 @@ class DriverController extends Controller
         }
 
         if (!CompanyUser::where(['user_uuid' => $driver->user_uuid, 'company_uuid' => $company->uuid])->exists()) {
-            return response()->apiError('You do not belong to this organization');
+            return response()->apiError('Driver does not belong to this organization.');
         }
 
         // Get the driver user account
         $user = $driver->getUser();
         if (!$user) {
-            return response()->apiError('Driver has not user account.');
+            return response()->apiError('Critial error, driver has not user account.');
+        }
+
+        // Get the users driver profile for this company
+        $driverProfile = Driver::where(['user_uuid' => $user->uuid, 'company_uuid' => $company->uuid])->first();
+        if (!$driverProfile) {
+            return response()->apiError('User does not have a driver profile with this organization.');
         }
 
         // Assign user to company and update their session
         $user->update(['company_uuid' => $company->uuid]);
-
         Auth::setSession($user);
 
-        return new Organization($company);
+        // Authenticate new driver
+        try {
+            $token = $user->createToken($driverProfile->uuid);
+        } catch (\Exception $e) {
+            return response()->apiError($e->getMessage());
+        }
+
+        $driverProfile->token = $token->plainTextToken;
+
+        return ['organization' => new Organization($company), 'driver' => new DriverResource($driverProfile)];
     }
 
     /**

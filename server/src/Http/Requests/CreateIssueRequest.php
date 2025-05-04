@@ -26,6 +26,7 @@ class CreateIssueRequest extends FleetbaseRequest
         return [
             'driver'       => ['required'],
             'location'     => ['required'],
+            'report'       => ['required'],
             'category'     => ['nullable'],
             'type'         => ['nullable'],
             'priority'     => ['nullable'],

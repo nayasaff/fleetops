@@ -2,6 +2,7 @@
 
 namespace Fleetbase\FleetOps\Http\Resources\v1;
 
+use Fleetbase\FleetOps\Support\Utils;
 use Fleetbase\Http\Resources\FleetbaseResource;
 use Fleetbase\Http\Resources\User;
 use Fleetbase\LaravelMysqlSpatial\Types\Point;
@@ -22,7 +23,6 @@ class Issue extends FleetbaseResource
             'id'                         => $this->when(Http::isInternalRequest(), $this->id, $this->public_id),
             'uuid'                       => $this->when(Http::isInternalRequest(), $this->uuid),
             'public_id'                  => $this->when(Http::isInternalRequest(), $this->public_id),
-            'issue_id'                   => $this->when(Http::isInternalRequest(), $this->issue_id),
             'driver_uuid'                => $this->when(Http::isInternalRequest(), $this->driver_uuid),
             'vehicle_uuid'               => $this->when(Http::isInternalRequest(), $this->vehicle_uuid),
             'assigned_to_uuid'           => $this->when(Http::isInternalRequest(), $this->assigned_to_uuid),
@@ -33,12 +33,15 @@ class Issue extends FleetbaseResource
             'driver'                     => $this->whenLoaded('driver', fn () => new Driver($this->driver)),
             'driver_name'                => $this->driver_name,
             'vehicle_name'               => $this->vehicle_name,
+            'vehicle_id'                 => $this->vehicle_id,
             'assignee_name'              => $this->assignee_name,
+            'assignee_id'                => $this->assignee_id,
             'reporter_name'              => $this->reporter_name,
+            'reporter_id'                => $this->reporter_id,
             'issue_id'                   => $this->issue_id,
             'report'                     => $this->report,
             'priority'                   => $this->priority,
-            'meta'                       => data_get($this, 'meta', []),
+            'meta'                       => data_get($this, 'meta', Utils::createObject()),
             'type'                       => $this->type,
             'category'                   => $this->category,
             'status'                     => $this->status,
@@ -65,7 +68,7 @@ class Issue extends FleetbaseResource
             'issue_id'           => $this->issue_id,
             'report'             => $this->report,
             'priority'           => $this->priority,
-            'meta'               => data_get($this, 'meta', []),
+            'meta'               => data_get($this, 'meta', Utils::createObject()),
             'type'               => $this->type,
             'category'           => $this->category,
             'status'             => $this->status,

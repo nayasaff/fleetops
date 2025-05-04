@@ -757,17 +757,18 @@ class Payload extends Model
      */
     public function updateWaypointActivity(?Activity $activity = null, $location = null, $proof = null)
     {
+        $this->loadMissing('order');
+
         if ($this->isMultipleDropOrder && Utils::isActivity($activity) && $location) {
             // update activity for the current waypoint
             $currentWaypoint = $this->waypointMarkers->firstWhere('place_uuid', $this->current_waypoint_uuid);
-
             if ($currentWaypoint) {
                 $currentWaypoint->insertActivity($activity, $location, $proof);
+                $activity->fireEvents($this->order);
             }
 
             // update activity for all entities for this destination/waypoint
             $entities = $this->entities->where('destination_uuid', $this->current_waypoint_uuid);
-
             foreach ($entities as $entity) {
                 $entity->insertActivity($activity, $location, $proof);
             }
@@ -784,21 +785,17 @@ class Payload extends Model
     public function setNextWaypointDestination()
     {
         $nextWaypoint = $this->waypointMarkers->filter(function ($waypoint) {
-            // dump($waypoint->place->public_id, strtolower($waypoint->status_code));
-            return !in_array(strtolower($waypoint->status_code), ['completed', 'canceled']) && $waypoint->place_uuid !== $this->current_waypoint_uuid;
+            return !$waypoint->complete && $waypoint->place_uuid !== $this->current_waypoint_uuid;
         })->first();
 
-        if (!$nextWaypoint) {
+        if (!$nextWaypoint || $this->current_waypoint_uuid === $nextWaypoint->place_uuid) {
             return $this;
         }
 
-        $this->current_waypoint_uuid = $nextWaypoint->place_uuid;
+        $this->setRelation('currentWaypoint', $nextWaypoint);
+        $this->update(['current_waypoint_uuid' => $nextWaypoint->place_uuid]);
 
-        if ($this->currentWaypoint) {
-            $this->currentWaypoint->refresh();
-        }
-
-        return $this->load('currentWaypoint');
+        return $this;
     }
 
     public function updateOrderDistanceAndTime(): ?Order

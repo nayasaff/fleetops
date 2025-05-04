@@ -37,6 +37,7 @@ class FleetOpsServiceProvider extends CoreServiceProvider
         \Fleetbase\Models\User::class                          => \Fleetbase\FleetOps\Observers\UserObserver::class,
         \Fleetbase\Models\Company::class                       => \Fleetbase\FleetOps\Observers\CompanyObserver::class,
         \Fleetbase\Models\CompanyUser::class                   => \Fleetbase\FleetOps\Observers\CompanyUserObserver::class,
+        \Fleetbase\Models\Category::class                      => \Fleetbase\FleetOps\Observers\CategoryObserver::class,
     ];
 
     /**
@@ -57,6 +58,7 @@ class FleetOpsServiceProvider extends CoreServiceProvider
         \Fleetbase\FleetOps\Console\Commands\SimulateOrderRouteNavigation::class,
         \Fleetbase\FleetOps\Console\Commands\DebugOrderTracker::class,
         \Fleetbase\FleetOps\Console\Commands\PurgeUnpurchasedServiceQuotes::class,
+        \Fleetbase\FleetOps\Console\Commands\SendDriverNotification::class,
     ];
 
     /**
@@ -120,6 +122,8 @@ class FleetOpsServiceProvider extends CoreServiceProvider
             \Fleetbase\FleetOps\Notifications\OrderDispatched::class,
             \Fleetbase\FleetOps\Notifications\OrderDispatchFailed::class,
             \Fleetbase\FleetOps\Notifications\OrderPing::class,
+            \Fleetbase\FleetOps\Notifications\OrderFailed::class,
+            \Fleetbase\FleetOps\Notifications\OrderCompleted::class,
         ]);
 
         // Register Notifiables
@@ -128,6 +132,9 @@ class FleetOpsServiceProvider extends CoreServiceProvider
             \Fleetbase\FleetOps\Models\Driver::class,
             \Fleetbase\FleetOps\Models\Vendor::class,
             \Fleetbase\FleetOps\Models\Fleet::class,
+            'dynamic:customer',
+            'dynamic:driver',
+            'dynamic:facilitator',
         ]);
     }
 }

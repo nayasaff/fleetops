@@ -2,6 +2,7 @@
 
 namespace Fleetbase\FleetOps\Http\Resources\v1;
 
+use Fleetbase\FleetOps\Support\Utils;
 use Fleetbase\Http\Resources\FleetbaseResource;
 use Fleetbase\Http\Resources\User;
 use Fleetbase\Support\Http;
@@ -35,13 +36,13 @@ class Contact extends FleetbaseResource
             'photo_url'                     => $this->photo_url ?? null,
             'place'                         => $this->whenLoaded('place', fn () => new Place($this->place)),
             'places'                        => $this->whenLoaded('places', fn () => Place::collection($this->places)),
-            'user'                          => $this->whenLoaded('user', fn () => new User($this->user)),
+            'user'                          => $this->when(Http::isInternalRequest(), fn () => new User($this->user), fn () => $this->user ? $this->user->public_id : null),
             'address'                       => $this->when(Http::isInternalRequest(), data_get($this, 'place.address')),
             'address_street'                => $this->when(Http::isInternalRequest(), data_get($this, 'place.street1')),
             'type'                          => $this->type ?? null,
             'customer_type'                 => $this->when(isset($this->customer_type), $this->customer_type),
             'facilitator_type'              => $this->when(isset($this->facilitator_type), $this->facilitator_type),
-            'meta'                          => $this->meta ?? [],
+            'meta'                          => data_get($this, 'meta', Utils::createObject()),
             'slug'                          => $this->slug ?? null,
             'updated_at'                    => $this->updated_at,
             'created_at'                    => $this->created_at,
@@ -64,7 +65,7 @@ class Contact extends FleetbaseResource
             'phone'       => $this->phone ?? null,
             'photo_url'   => $this->photo_url ?? null,
             'type'        => $this->type ?? null,
-            'meta'        => $this->meta ?? [],
+            'meta'        => data_get($this, 'meta', Utils::createObject()),
             'slug'        => $this->slug ?? null,
             'updated_at'  => $this->updated_at,
             'created_at'  => $this->created_at,

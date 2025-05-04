@@ -28,16 +28,24 @@ export default class FuelReportFormPanelComponent extends Component {
     /**
      * Permission needed to update or create record.
      *
-     * @memberof DriverFormPanelComponent
+     * @memberof FuelReportFormPanelComponent
      */
     @tracked savePermission;
 
     /**
+     * The current controller if any.
+     *
+     * @memberof FuelReportFormPanelComponent
+     */
+    @tracked controller;
+
+    /**
      * Constructs the component and applies initial state.
      */
-    constructor(owner, { fuelReport = null }) {
+    constructor(owner, { fuelReport = null, controller }) {
         super(...arguments);
         this.fuelReport = fuelReport;
+        this.controller = controller;
         this.savePermission = fuelReport && fuelReport.isNew ? 'fleet-ops create fuel-report' : 'fleet-ops update fuel-report';
         applyContextComponentArguments(this);
     }
@@ -94,5 +102,10 @@ export default class FuelReportFormPanelComponent extends Component {
      */
     @action onPressCancel() {
         return contextComponentCallback(this, 'onPressCancel', this.fuelReport);
+    }
+
+    @action setReporter(user) {
+        this.issue.set('reporter', user);
+        this.issue.set('reported_by_uuid', user.id);
     }
 }

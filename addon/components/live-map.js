@@ -195,6 +195,9 @@ export default class LiveMapComponent extends Component {
      */
     @tracked leafletPluginsLoadedCheckId = false;
 
+    @tracked focusedVehicle;
+    @tracked focusedDriver;
+
     /**
      * Cache for storing original state of resource arrays.
      * @type {Object.<string, Array>}
@@ -206,11 +209,11 @@ export default class LiveMapComponent extends Component {
      * Creates an instance of LiveMapComponent.
      * @memberof LiveMapComponent
      */
-    constructor(owner, { zoom = 12, darkMode = false }) {
+    constructor(owner, { zoom = 12 }) {
         super(...arguments);
 
         this.zoom = zoom;
-        this.changeTileSource(darkMode ? 'dark' : 'light');
+        this.changeTileSource('light');
         this.movementTracker.registerTrackingMarker(owner);
         this.setupComponent();
     }
@@ -240,9 +243,6 @@ export default class LiveMapComponent extends Component {
      * @function
      */
     async setupComponent() {
-        // trigger that initial coordinates have been set
-        this.universe.trigger('fleet-ops.live-map.loaded', this);
-
         // set initial coordinates
         await this.setInitialCoordinates();
 
@@ -277,6 +277,7 @@ export default class LiveMapComponent extends Component {
         await allSettled(liveDataPromises);
         this.isDataLoaded = true;
         this.listen();
+        this.universe.trigger('fleet-ops.live-map.loaded', this);
     }
 
     /**
@@ -386,7 +387,7 @@ export default class LiveMapComponent extends Component {
         this.triggerAction('onLoad', event);
 
         // handle theme change
-        this._checkThemeChanged();
+        // this._checkThemeChanged();
     }
 
     _checkThemeChanged() {
@@ -1906,5 +1907,21 @@ export default class LiveMapComponent extends Component {
         } catch (error) {
             this.notifications.serverError(error);
         }
+    }
+
+    focusDriver(driver) {
+        this.focusedDriver = driver;
+    }
+
+    focusVehicle(vehicle) {
+        this.focusedVehicle = vehicle;
+    }
+
+    blurDriver() {
+        this.focusedDriver = null;
+    }
+
+    blurVehicle() {
+        this.focusedVehicle = null;
     }
 }

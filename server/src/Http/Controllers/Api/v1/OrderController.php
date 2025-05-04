@@ -25,6 +25,7 @@ use Fleetbase\FleetOps\Models\ServiceQuote;
 use Fleetbase\FleetOps\Models\Waypoint;
 use Fleetbase\FleetOps\Support\Utils;
 use Fleetbase\Http\Controllers\Controller;
+use Fleetbase\Http\Resources\Comment as CommentResource;
 use Fleetbase\Models\Company;
 use Fleetbase\Models\File;
 use Fleetbase\Models\Setting;
@@ -47,6 +48,8 @@ class OrderController extends Controller
      */
     public function create(CreateOrderRequest $request)
     {
+        set_time_limit(180);
+
         // get request input
         $input = $request->only(['internal_id', 'payload', 'service_quote', 'purchase_rate', 'adhoc', 'adhoc_distance', 'pod_method', 'pod_required', 'scheduled_at', 'status', 'meta', 'notes']);
 
@@ -324,6 +327,8 @@ class OrderController extends Controller
      */
     public function update($id, UpdateOrderRequest $request)
     {
+        set_time_limit(180);
+
         // find for the order
         try {
             $order = Order::findRecordOrFail($id);
@@ -489,8 +494,12 @@ class OrderController extends Controller
      */
     public function query(Request $request)
     {
+        set_time_limit(180);
+
         $results = Order::queryWithRequest($request, function (&$query, $request) {
             $query->where('company_uuid', session('company'));
+            $query->whereNotNull('payload_uuid');
+
             if ($request->has('payload')) {
                 $query->whereHas('payload', function ($q) use ($request) {
                     $q->where('public_id', $request->input('payload'));
@@ -971,18 +980,18 @@ class OrderController extends Controller
         if (Utils::isActivity($activity) && $activity->completesOrder() && $order->payload->isMultipleDropOrder) {
             // confirm every waypoint is completed
             $isCompleted = $order->payload->waypointMarkers->every(function ($waypoint) {
-                return $waypoint->status_code === 'COMPLETED';
+                return $waypoint->complete;
             });
 
             // only update activity for waypoint
             if (!$isCompleted) {
                 $order->payload->updateWaypointActivity($activity, $location, $proof);
                 $order->payload->setNextWaypointDestination();
-                $order->payload->refresh();
+                $order->payload->load('waypointMarkers');
 
                 // recheck if order is completed
                 $isFullyCompleted = $order->payload->waypointMarkers->every(function ($waypoint) {
-                    return $waypoint->status_code === 'COMPLETED';
+                    return $waypoint->complete;
                 });
 
                 if (!$isFullyCompleted) {
@@ -1169,6 +1178,8 @@ class OrderController extends Controller
      */
     public function trackerData(string $id)
     {
+        set_time_limit(280);
+
         try {
             $order = Order::findRecordOrFail($id);
             $data  = $order->tracker()->toArray();
@@ -1243,7 +1254,9 @@ class OrderController extends Controller
                 $subject = Entity::where('uuid', $code)->withoutGlobalScopes()->first();
                 break;
 
+            case 'order':
             default:
+                $subject = $order;
                 break;
         }
 
@@ -1311,7 +1324,9 @@ class OrderController extends Controller
                 $subject = Entity::where('public_id', $subjectId)->withoutGlobalScopes()->first();
                 break;
 
+            case 'order':
             default:
+                $subject = $order;
                 break;
         }
 
@@ -1334,7 +1349,7 @@ class OrderController extends Controller
         $path = 'uploads/' . session('company') . '/signatures/' . $proof->public_id . '.png';
 
         // upload signature
-        Storage::disk($disk)->put($path, base64_decode($signature));
+        Storage::disk($disk)->put($path, base64_decode(str_replace('data:image/png;base64,', '', $signature)));
 
         // create file record for upload
         $file = File::create([
@@ -1364,12 +1379,14 @@ class OrderController extends Controller
      */
     public function capturePhoto(Request $request, string $id, ?string $subjectId = null)
     {
-        $disk         = $request->input('disk', config('filesystems.default'));
-        $bucket       = $request->input('bucket', config('filesystems.disks.' . $disk . '.bucket', config('filesystems.disks.s3.bucket')));
-        $photo        = $request->input('photo');
-        $data         = $request->input('data', []);
-        $remarks      = $request->input('remarks', 'Verified by Photo');
-        $type         = $subjectId ? strtok($subjectId, '_') : null;
+        $disk          = $request->input('disk', config('filesystems.default'));
+        $bucket        = $request->input('bucket', config('filesystems.disks.' . $disk . '.bucket', config('filesystems.disks.s3.bucket')));
+        $photo         = $request->input('photo');
+        $photos        = $request->array('photos');
+        $data          = $request->input('data', []);
+        $remarks       = $request->input('remarks', 'Verified by Photo');
+        $type          = $subjectId ? strtok($subjectId, '_') : null;
+        $photos        = array_filter([$photo, ...$photos]);
 
         try {
             $order = Order::findRecordOrFail($id);
@@ -1377,7 +1394,7 @@ class OrderController extends Controller
             return response()->apiError('Order resource not found.', 404);
         }
 
-        if (!$photo) {
+        if (!$photos) {
             return response()->apiError('No photo data to capture.');
         }
 
@@ -1398,50 +1415,105 @@ class OrderController extends Controller
                 $subject = Entity::where('public_id', $subjectId)->withoutGlobalScopes()->first();
                 break;
 
+            case 'order':
             default:
+                $subject = $order;
                 break;
         }
 
         if (!$subject) {
-            return response()->apiError('Unable to capture photo');
+            return response()->apiError('Unable to capture photo as proof.');
         }
 
-        // create proof instance
-        $proof = Proof::create([
+        foreach ($photos as $photo) {
+            // create proof instance
+            $proof = Proof::create([
+                'company_uuid' => session('company'),
+                'order_uuid'   => $order->uuid,
+                'subject_uuid' => $subject->uuid,
+                'subject_type' => Utils::getModelClassName($subject),
+                'remarks'      => $remarks,
+                'raw_data'     => $photo,
+                'data'         => $data,
+            ]);
+
+            $path = implode('/', ['uploads', session('company'), 'photos', $proof->public_id . '.png']);
+            // $path = 'uploads/' . session('company') . '/photos/' . $proof->public_id . '.png';
+            Storage::disk($disk)->put($path, base64_decode($photo));
+            $file = File::create([
+                'company_uuid'      => session('company'),
+                'uploader_uuid'     => session('user'),
+                'name'              => basename($path),
+                'original_filename' => basename($path),
+                'extension'         => 'png',
+                'content_type'      => 'image/png',
+                'path'              => $path,
+                'bucket'            => $bucket,
+                'type'              => 'photo',
+                'size'              => Utils::getBase64ImageSize($photo),
+            ])->setKey($proof);
+
+            // set file to proof
+            $proof->file_uuid = $file->uuid;
+            $proof->save();
+        }
+
+        return new ProofResource($proof);
+    }
+
+    /**
+     * Retrieve proof of delivery resources associated with a given order and optional subject.
+     *
+     * This method supports retrieving proofs related to the order itself or a subject within the order,
+     * such as a waypoint, place, or entity. If a subject ID is provided, it will determine the subject type
+     * based on its prefix and resolve the appropriate model. If no subject ID is provided, the order itself is used
+     * as the subject.
+     *
+     * @param Request     $request   the incoming HTTP request instance
+     * @param string      $id        the public ID of the order
+     * @param string|null $subjectId Optional subject ID (e.g., waypoint, place, or entity).
+     *
+     * @return \Illuminate\Http\JsonResponse|\Illuminate\Http\Resources\Json\AnonymousResourceCollection
+     */
+    public function proofs(Request $request, string $id, ?string $subjectId = null)
+    {
+        try {
+            $order = Order::findRecordOrFail($id);
+        } catch (ModelNotFoundException $e) {
+            return response()->apiError('Order resource not found.', 404);
+        }
+
+        $subject = $order;
+
+        if ($subjectId) {
+            $type = strtok($subjectId, '_');
+
+            $subject = match ($type) {
+                'place', 'waypoint' => Waypoint::where('payload_uuid', $order->payload_uuid)
+                    ->where(function ($query) use ($subjectId) {
+                        $query->whereHas('place', fn ($q) => $q->where('public_id', $subjectId))
+                              ->orWhere('public_id', $subjectId);
+                    })
+                    ->withoutGlobalScopes()
+                    ->first(),
+
+                'entity' => Entity::where('public_id', $subjectId)->withoutGlobalScopes()->first(),
+
+                default => $order,
+            };
+        }
+
+        if (!$subject) {
+            return response()->apiError('Unable to retrieve proof of delivery for subject.');
+        }
+
+        $proofs = Proof::where([
             'company_uuid' => session('company'),
             'order_uuid'   => $order->uuid,
             'subject_uuid' => $subject->uuid,
-            'subject_type' => Utils::getModelClassName($subject),
-            'remarks'      => $remarks,
-            'raw_data'     => $photo,
-            'data'         => $data,
-        ]);
+        ])->get();
 
-        // set the photo storage path
-        $path = 'uploads/' . session('company') . '/photos/' . $proof->public_id . '.png';
-
-        // upload photo
-        Storage::disk($disk)->put($path, base64_decode($photo));
-
-        // create file record for upload
-        $file = File::create([
-            'company_uuid'      => session('company'),
-            'uploader_uuid'     => session('user'),
-            'name'              => basename($path),
-            'original_filename' => basename($path),
-            'extension'         => 'png',
-            'content_type'      => 'image/png',
-            'path'              => $path,
-            'bucket'            => $bucket,
-            'type'              => 'photo',
-            'size'              => Utils::getBase64ImageSize($photo),
-        ])->setKey($proof);
-
-        // set file to proof
-        $proof->file_uuid = $file->uuid;
-        $proof->save();
-
-        return new ProofResource($proof);
+        return ProofResource::collection($proofs);
     }
 
     /**
@@ -1481,5 +1553,21 @@ class OrderController extends Controller
         }
 
         return response()->json($entityEditingSettings);
+    }
+
+    public function orderComments(string $id)
+    {
+        try {
+            $order = Order::findRecordOrFail($id);
+            $order->loadMissing('comments');
+
+            return CommentResource::collection($order->comments);
+        } catch (ModelNotFoundException $e) {
+            return response()->apiError('Order resource not found.', 404);
+        } catch (\Throwable $e) {
+            return response()->apiError('An error occured trying to get order comments.', 404);
+        }
+
+        return response()->apiError('An error occured trying to get order comments.', 404);
     }
 }
